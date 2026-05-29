@@ -1,0 +1,3 @@
+entry_template: "{{login}} | {{title}} | {{commits}}"
+sort: alphabetical
+min_contributions: 1
