@@ -1,11 +1,3 @@
 entry_template: "{{login}} | {{title}} | {{commits}}"
 sort: alphabetical
 min_contributions: 1
-# Map the E2E's synthetic commit authors to a login so contributors resolve
-# deterministically (their emails aren't real GitHub-noreply addresses and
-# can't be joined to a login via the API).
-identity_map:
-  - login: smorin
-    emails:
-      - contributors-please-e2e@users.noreply.github.com
-      - steve.morin@gmail.com
