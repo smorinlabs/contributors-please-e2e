@@ -1,0 +1,63 @@
+name: Scratch GC
+
+# Prune accumulated per-run e2e fixtures so the scratch repo's main does not grow
+# unbounded. The contributors-please-action e2e / live-adoption suites push one set
+# of synthetic files per run (src/e2e-*, docs/e2e-*, tests/test_e2e_*,
+# live-fixtures/*); nothing removed them until now. Resilience fix-plan FP-1.4(b).
+
+on:
+  schedule:
+    - cron: "0 4 * * 0" # weekly, Sunday 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scratch-gc
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune accumulated e2e fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Remove accumulated synthetic fixtures
+        run: |
+          set -euo pipefail
+          git config user.name "contributors-please scratch gc"
+          git config user.email "contributors-please-e2e@users.noreply.github.com"
+
+          # The live workflows own the working fixtures (.contributors.jsonl,
+          # .contributors.yml, CONTRIBUTORS.md, README.md) and reset them each run;
+          # GC removes only the unbounded per-run cruft. find tolerates no matches
+          # and missing directories.
+          find src -maxdepth 1 -name 'e2e-*' -delete 2>/dev/null || true
+          find docs -maxdepth 1 -name 'e2e-*' -delete 2>/dev/null || true
+          find tests -maxdepth 1 -name 'test_e2e_*' -delete 2>/dev/null || true
+          find live-fixtures -maxdepth 1 -type f -delete 2>/dev/null || true
+
+          if git diff --quiet; then
+            echo "Nothing to prune."
+            exit 0
+          fi
+
+          removed="$(git status --porcelain | grep -c '^ D' || true)"
+          git add -A
+          git commit -m "chore: prune ${removed} accumulated e2e fixture files"
+
+          # A live suite may push to main concurrently; rebase and retry, and tolerate
+          # a lost race (the next scheduled run cleans up).
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "Pruned ${removed} files."
+              exit 0
+            fi
+            echo "Push attempt ${attempt} failed; rebasing on origin and retrying." >&2
+            git fetch origin "${GITHUB_REF_NAME}"
+            git rebase "origin/${GITHUB_REF_NAME}" || git rebase --abort || true
+          done
+          echo "Could not push GC commit after retries (likely a concurrent live run); will retry next schedule." >&2
+          exit 0
